@@ -1,0 +1,6 @@
+ml/venv/
+backend/venv/
+ml/artifacts/*.pkl
+.env*
+backend/.env*
+frontend/.env*
