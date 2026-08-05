@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: agrosphere-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: agrosphere
+      POSTGRES_PASSWORD: agrosphere
+      POSTGRES_DB: agrosphere
+    ports:
+      - "5433:5432"
+    volumes:
+      - agrosphere_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrosphere -d agrosphere"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: agrosphere-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://agrosphere:agrosphere@db:5432/agrosphere
+      ML_ARTIFACTS_PATH: /app/ml/artifacts
+      ML_SOURCE_PATH: /app/ml
+      FRONTEND_URL: http://localhost:3000
+    volumes:
+      # Live-reload friendly mounts for local docker dev
+      - ./backend:/app/backend
+      - ./ml:/app/ml
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  agrosphere_pgdata:

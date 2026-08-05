@@ -19,7 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from core.config import config
+from db.session import init_db
+from routers.auth import router as auth_router
 from routers.crops import router as crops_router
+from routers.farms import router as farms_router
 from services.ml_bridge import load_model
 
 
@@ -31,10 +34,18 @@ async def lifespan(app: FastAPI):
     """
     print(f"\n[ {config.APP_NAME} ] Starting up...")
     config.validate()
+    try:
+        init_db()
+        print(f"[ {config.APP_NAME} ] Database ready")
+    except Exception as e:
+        print(f"[ {config.APP_NAME} ] Database init failed: {e}")
+        print(
+            "  → Start Postgres (docker compose up -d db) "
+            "or check DATABASE_URL in .env"
+        )
     load_model()
     print(f"[ {config.APP_NAME} ] Ready\n")
     yield
-    # Shutdown
     print(f"[ {config.APP_NAME} ] Shutting down...")
 
 
@@ -48,7 +59,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Allow the Next.js frontend to call this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -60,15 +70,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register route groups
+app.include_router(auth_router)
 app.include_router(crops_router)
+app.include_router(farms_router)
 
 
 @app.get("/health")
 def health():
     """Quick check that the server is running."""
     return {
-        "status":       "ok",
-        "app":          config.APP_NAME,
-        "version":      config.APP_VERSION,
+        "status": "ok",
+        "app": config.APP_NAME,
+        "version": config.APP_VERSION,
     }

@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@config "../tailwind.config.ts";
+
+@layer base {
+  * { box-sizing: border-box; }
+  html {
+    position: relative;
+    scroll-behavior: smooth;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  body {
+    background-color: #F7F4EB;
+    color: #4A3F35;
+    font-family: 'Outfit', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: #F7F4EB; }  ::-webkit-scrollbar-thumb { background: #E3DAC9; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #E58B19; }
+  ::selection { background: rgba(229,139,25,0.25); color: #4A3F35; }
+}
+
+@layer components {
+  .agro-card {
+    @apply rounded-2xl border;
+    background-color: #FDFBF7;
+    border-color: #E3DAC9;
+    transition: all 0.3s ease;
+  }
+  .agro-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.06);
+    border-color: #E58B19;
+  }
+  .agro-btn {
+    background: linear-gradient(135deg, #E58B19, #F2A63B);
+    color: #FDFBF7;
+    font-weight: 800;
+    padding: 0.8rem 1.75rem;
+    border-radius: 0.875rem;
+    transition: all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .agro-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(229,139,25,0.4);
+    background: linear-gradient(135deg, #F2A63B, #E58B19);
+  }
+  .agro-btn:active { transform: translateY(0); }
+  .agro-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .agro-btn-ghost {
+    background: transparent;
+    color: #4A3F35;
+    font-weight: 600;
+    padding: 0.8rem 1.75rem;
+    border-radius: 0.875rem;
+    border: 1.5px solid #E3DAC9;
+    transition: all 0.25s;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+  }
+  .agro-btn-ghost:hover {
+    border-color: #E58B19;
+    color: #E58B19;
+    background: rgba(229,139,25,0.08);
+    transform: translateY(-2px);
+  }
+  .agro-btn-sm {
+    padding: 0.5rem 1.1rem;
+    font-size: 0.8rem;
+    border-radius: 0.625rem;
+  }
+  .agro-input {
+    background-color: #FDFBF7;
+    border: 1.5px solid #E3DAC9;
+    border-radius: 0.875rem;
+    padding: 0.875rem 1rem;
+    color: #4A3F35;
+    width: 100%;
+    transition: all 0.2s;
+    outline: none;
+    font-size: 0.9rem;
+    font-family: 'Outfit', sans-serif;
+  }
+  .agro-input:focus {
+    border-color: #E58B19;
+    box-shadow: 0 0 0 3px rgba(229,139,25,0.15);
+  }
+  .agro-input::placeholder { color: #A39686; }
+  .agro-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #A39686;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .agro-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .agro-tag-amber {
+    background: rgba(229,139,25,0.15);
+    border: 1px solid rgba(229,139,25,0.3);
+    color: #E58B19;
+  }
+  .agro-tag-green {
+    background: rgba(74,150,97,0.15);
+    border: 1px solid rgba(74,150,97,0.3);
+    color: #4A9661;
+  }
+  .agro-tag-orange {
+    background: rgba(217,105,42,0.15);
+    border: 1px solid rgba(217,105,42,0.3);
+    color: #D9692A;
+  }
+  .text-gradient-amber {
+    background: linear-gradient(135deg, #E58B19 0%, #F2A63B 50%, #4A9661 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-warm {
+    background: linear-gradient(135deg, #4A3F35 0%, #E58B19 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .glow-amber { box-shadow: 0 0 60px rgba(229,139,25,0.18); }
+  .glow-amber-lg { box-shadow: 0 0 100px rgba(229,139,25,0.25); }
+}

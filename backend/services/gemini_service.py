@@ -130,7 +130,7 @@ async def explain_recommendation(
         )
 
         response = await client.aio.models.generate_content(
-            model    = "gemini-2.5-flash-lite",
+            model    = config.GEMINI_MODEL,
             contents = prompt,
             config   = types.GenerateContentConfig(
                 system_instruction = SYSTEM_PROMPT,
