@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "sonner";
+import AuthBootstrap from "@/components/AuthBootstrap";
 
 export const metadata: Metadata = {
   title: "AgroSphere — AI Crop Intelligence for African Farmers",
@@ -17,6 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-agro-bg text-agro-text antialiased font-sans">
+        <AuthBootstrap />
         {children}
         <Toaster
           theme="dark"

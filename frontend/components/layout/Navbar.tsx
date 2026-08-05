@@ -46,36 +46,42 @@ export default function Navbar() {
     { label: "How It Works", href: "/#how-it-works" },
   ];
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginUser.trim() || !loginPass) {
       toast.error("Please fill in all fields.");
       return;
     }
-    const res = login(loginUser, loginPass);
+    const res = await login(loginUser, loginPass);
     if (res.success) {
       toast.success(res.message);
       setShowLogin(false);
       setLoginUser("");
       setLoginPass("");
+      router.push("/hub");
     } else {
       toast.error(res.message);
     }
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regUser.trim() || !regEmail.trim() || !regPass) {
       toast.error("Please fill in all fields.");
       return;
     }
-    const res = register(regUser, regEmail, regPass);
+    if (regPass.length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    const res = await register(regUser, regEmail, regPass);
     if (res.success) {
       toast.success(res.message);
       setShowRegister(false);
       setRegUser("");
       setRegEmail("");
       setRegPass("");
+      router.push("/hub");
     } else {
       toast.error(res.message);
     }
@@ -158,8 +164,10 @@ export default function Navbar() {
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => {
-                    logout();
-                    toast.success("Successfully logged out.");
+                    void logout().then(() => {
+                      toast.success("Successfully logged out.");
+                      router.push("/");
+                    });
                   }}
                   className="agro-btn-ghost agro-btn-sm flex items-center gap-1.5"
                 >
@@ -262,9 +270,11 @@ export default function Navbar() {
                       </div>
                       <button
                         onClick={() => {
-                          logout();
-                          setOpen(false);
-                          toast.success("Successfully logged out.");
+                          void logout().then(() => {
+                            setOpen(false);
+                            toast.success("Successfully logged out.");
+                            router.push("/");
+                          });
                         }}
                         className="agro-btn-ghost w-full justify-center"
                       >

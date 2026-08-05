@@ -13,13 +13,25 @@ import { useAuthStore } from "@/hooks/useAuthStore";
 /* ── Animation variants ──────────────────────────────────────────────── */
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const },
+  },
 };
 
 const slideVariants = {
   enter: (dir: number) => ({ x: dir > 0 ? 80 : -80, opacity: 0 }),
-  center: { x: 0, opacity: 1, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
-  exit: (dir: number) => ({ x: dir > 0 ? -80 : 80, opacity: 0, transition: { duration: 0.25 } }),
+  center: {
+    x: 0,
+    opacity: 1,
+    transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] as const },
+  },
+  exit: (dir: number) => ({
+    x: dir > 0 ? -80 : 80,
+    opacity: 0,
+    transition: { duration: 0.25 },
+  }),
 };
 
 /* ── Page ───────────────────────────────────────────────────────────── */
@@ -58,13 +70,12 @@ export default function AuthPage() {
     setMode(target);
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!loginUser.trim() || !loginPass) {
       toast.error("Please fill in all fields");
       return;
     }
-    const result = login(loginUser, loginPass);
-    // console.log(result);
+    const result = await login(loginUser, loginPass);
     if (result.success) {
       toast.success(result.message);
       router.push("/hub");
@@ -73,16 +84,16 @@ export default function AuthPage() {
     }
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!regUser.trim() || !regEmail.trim() || !regPass) {
       toast.error("Please fill in all fields");
       return;
     }
-    if (regPass.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    if (regPass.length < 8) {
+      toast.error("Password must be at least 8 characters");
       return;
     }
-    const result = register(regUser, regEmail, regPass);
+    const result = await register(regUser, regEmail, regPass);
     if (result.success) {
       toast.success(result.message);
       router.push("/hub");

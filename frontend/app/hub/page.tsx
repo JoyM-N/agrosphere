@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Leaf, Sprout, BarChart3, ArrowRight, LogOut,
+  Leaf, Sprout, BarChart3, ArrowRight,
   TrendingUp, Brain, Clock, Plus, ChevronRight, Sun,
 } from "lucide-react";
 import { useAuthStore } from "@/hooks/useAuthStore";
@@ -14,7 +14,11 @@ import Navbar from "@/components/layout/Navbar";
 /* ── Animation variants ──────────────────────────────────────────────── */
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] as const },
+  },
 };
 
 const stagger = {
@@ -25,23 +29,27 @@ const stagger = {
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function HubPage() {
   const router = useRouter();
-  const { isAuthenticated, user, getHistory, logout } = useAuthStore();
+  const { isAuthenticated, user, history, loadHistory } = useAuthStore();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Redirect to auth if not logged in
   useEffect(() => {
     if (mounted && !isAuthenticated) {
       router.push("/auth");
     }
   }, [mounted, isAuthenticated, router]);
 
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      void loadHistory();
+    }
+  }, [mounted, isAuthenticated, loadHistory]);
+
   if (!mounted || !isAuthenticated) return null;
 
-  const history = getHistory();
   const analysisCount = history.length;
   const lastCrop = history.length > 0 ? history[0].top_crop : null;
 

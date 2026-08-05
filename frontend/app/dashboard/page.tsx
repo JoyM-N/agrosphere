@@ -42,8 +42,9 @@ const formatTime = (iso: string) => {
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
   show: {
-    opacity: 1, y: 0,
-    transition: { duration: 0.5, ease: [0.25, 0.1, 0.25, 1] },
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.25, 0.1, 0.25, 1] as const },
   },
 };
 
@@ -223,21 +224,26 @@ function HistoryRow({ entry }: { entry: any }) {
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   
-  // Auth Store Connections
-  const { isAuthenticated, getHistory, user, setShowLoginModal, setShowRegisterModal } = useAuthStore();
-  
-  const history = mounted && isAuthenticated ? getHistory() : DEMO_HISTORY;
+  const { isAuthenticated, history, loadHistory, user, setShowLoginModal, setShowRegisterModal } = useAuthStore();
+
+  const displayHistory = mounted && isAuthenticated ? history : DEMO_HISTORY;
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      void loadHistory();
+    }
+  }, [mounted, isAuthenticated, loadHistory]);
+
   // Stats computed from history
-  const avgFertility = history.length
-    ? Math.round(history.reduce((a, h) => a + h.soil_fertility_score, 0) / history.length * 100)
+  const avgFertility = displayHistory.length
+    ? Math.round(displayHistory.reduce((a, h) => a + h.soil_fertility_score, 0) / displayHistory.length * 100)
     : 0;
 
-  const topCropCount = history.reduce((acc, h) => {
+  const topCropCount = displayHistory.reduce((acc, h) => {
     if (h.top_crop) {
       acc[h.top_crop] = (acc[h.top_crop] || 0) + 1;
     }
@@ -247,7 +253,7 @@ export default function DashboardPage() {
   const mostCommonCrop = Object.entries(topCropCount)
     .sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
 
-  const highRiskCount = history.filter(
+  const highRiskCount = displayHistory.filter(
     (h) => h.drought_risk === "high" || h.drought_risk === "critical"
   ).length;
 
@@ -331,7 +337,7 @@ export default function DashboardPage() {
           >
             <StatCard
               icon={BarChart3} label="Analyses Run"
-              value={`${history.length}`}
+              value={`${displayHistory.length}`}
               sub="Total recommendations"
               color="#E58B19"
             />
@@ -404,7 +410,7 @@ export default function DashboardPage() {
                   Analysis History
                 </h2>
                 <span style={{ fontSize: "0.75rem", color: "#A39686" }}>
-                  {history.length} record{history.length !== 1 ? "s" : ""}
+                  {displayHistory.length} record{displayHistory.length !== 1 ? "s" : ""}
                 </span>
               </div>
 
@@ -414,15 +420,15 @@ export default function DashboardPage() {
                 animate="show"
                 style={{ display: "flex", flexDirection: "column", gap: 10 }}
               >
-                {history.map((entry, i) => (
-                  <HistoryRow key={entry.id} entry={entry} index={i} />
+                {displayHistory.map((entry) => (
+                  <HistoryRow key={entry.id} entry={entry} />
                 ))}
               </motion.div>
             </div>
           )}
 
           {/* Bottom fresh analysis prompt card */}
-          {history.length > 0 && (
+          {displayHistory.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

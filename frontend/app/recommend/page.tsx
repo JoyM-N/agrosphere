@@ -11,7 +11,6 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import { toast } from "sonner";
 import { useAuthStore } from "@/hooks/useAuthStore";
-import { getRecommendation } from "@/lib/api";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 interface FarmData {
@@ -67,7 +66,7 @@ const slideVariants = {
   }),
   center: {
     x: 0, opacity: 1,
-    transition: { duration: 0.4, ease: [0.25, 0.1, 0.25, 1] },
+    transition: { duration: 0.4, ease: [0.25, 0.1, 0.25, 1] as const },
   },
   exit: (dir: number) => ({
     x: dir > 0 ? -60 : 60, opacity: 0,
@@ -185,7 +184,7 @@ export default function RecommendPage() {
   const [loading,   setLoading]   = useState(false);
   
   // Auth Integration
-  const { isAuthenticated, addHistoryEntry } = useAuthStore();
+  const { isAuthenticated, runRecommendation } = useAuthStore();
 
   const [data, setData] = useState<FarmData>({
     nitrogen: "", phosphorus: "", potassium: "",
@@ -256,34 +255,13 @@ export default function RecommendPage() {
         language:    "en",
       };
 
-      const result = await getRecommendation(payload);
+      const result = await runRecommendation(payload);
 
       // Save to sessionStorage so results page can read it immediately
       sessionStorage.setItem("agrosphere_result", JSON.stringify(result));
       sessionStorage.setItem("agrosphere_input",  JSON.stringify(payload));
 
-      // Persist history if user is authenticated
       if (isAuthenticated) {
-        addHistoryEntry({
-          top_crop: result.top_crop,
-          confidence_pct: result.recommendations[0].confidence_pct,
-          drought_risk: result.drought_risk,
-          soil_fertility_score: result.soil_fertility_score,
-          region: payload.region,
-          season: payload.season,
-          nitrogen: payload.nitrogen,
-          phosphorus: payload.phosphorus,
-          potassium: payload.potassium,
-          ph: payload.ph,
-          rainfall: payload.rainfall,
-          temperature: payload.temperature,
-          humidity: payload.humidity,
-          soil_type: payload.soil_type,
-          irrigation: payload.irrigation,
-          explanation: result.explanation || "Suitable based on model features.",
-          tips: result.tips || ["Ensure regular weeding.", "Monitor soil moisture."],
-          climate_warning: result.climate_warning || "No severe climate risks reported.",
-        });
         toast.success("Analysis complete! Saved to your dashboard history.", { id: toastId });
       } else {
         toast.success("Analysis complete! View recommendation now.", { id: toastId });
@@ -292,7 +270,11 @@ export default function RecommendPage() {
       setTimeout(() => router.push("/results"), 850);
 
     } catch (err) {
-      toast.error("Could not reach the server. Make sure the backend is running.", { id: toastId });
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Could not reach the server. Make sure the backend is running.";
+      toast.error(message, { id: toastId });
     } finally {
       setLoading(false);
     }

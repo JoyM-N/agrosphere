@@ -2,6 +2,25 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+  AuthUser,
+  FarmInput,
+  PersistedRecommendation,
+  ensureDefaultFarm,
+  getAccessToken,
+  listFarmRecommendations,
+  listFarms,
+  loginUser,
+  logoutUser,
+  persistedToRecommendationResponse,
+  recommendForFarm,
+  refreshSession,
+  registerUser,
+  setAccessToken,
+  upsertSoil,
+  getRecommendation,
+  RecommendationResponse,
+} from "@/lib/api";
 
 export interface HistoryEntry {
   id: string;
@@ -27,139 +46,249 @@ export interface HistoryEntry {
 }
 
 export interface User {
+  id?: string;
   username: string;
   email: string;
+  role?: string;
 }
 
 interface AuthState {
   user: User | null;
-  accounts: Record<string, string>; // username -> password
-  userEmails: Record<string, string>; // username -> email
-  userHistory: Record<string, HistoryEntry[]>; // username -> history
+  accessToken: string | null;
+  activeFarmId: string | null;
+  history: HistoryEntry[];
+  historyLoading: boolean;
   isAuthenticated: boolean;
-  
-  // UI Global Modal States
+  bootstrapped: boolean;
+
   showLoginModal: boolean;
   showRegisterModal: boolean;
   setShowLoginModal: (show: boolean) => void;
   setShowRegisterModal: (show: boolean) => void;
-  
-  // Actions
-  login: (username: string, password: string) => { success: boolean; message: string };
-  register: (username: string, email: string, password: string) => { success: boolean; message: string };
-  logout: () => void;
-  addHistoryEntry: (entry: Omit<HistoryEntry, "id" | "timestamp">) => void;
+
+  bootstrap: () => Promise<void>;
+  login: (
+    username: string,
+    password: string
+  ) => Promise<{ success: boolean; message: string }>;
+  register: (
+    username: string,
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; message: string }>;
+  logout: () => Promise<void>;
+  loadHistory: () => Promise<void>;
   getHistory: () => HistoryEntry[];
+  runRecommendation: (input: FarmInput) => Promise<RecommendationResponse>;
+}
+
+function toUser(u: AuthUser): User {
+  return {
+    id: u.id,
+    username: u.username,
+    email: u.email,
+    role: u.role,
+  };
+}
+
+function mapPersisted(row: PersistedRecommendation): HistoryEntry {
+  const snap = row.input_snapshot ?? {};
+  const first = row.results?.[0];
+  return {
+    id: row.id,
+    timestamp: row.created_at,
+    top_crop: row.top_crop,
+    confidence_pct: first?.confidence_pct ?? "—",
+    drought_risk: row.drought_risk,
+    soil_fertility_score: row.soil_fertility_score,
+    region: String(snap.region ?? ""),
+    season: String(snap.season ?? ""),
+    nitrogen: Number(snap.nitrogen ?? 0),
+    phosphorus: Number(snap.phosphorus ?? 0),
+    potassium: Number(snap.potassium ?? 0),
+    ph: Number(snap.ph ?? 0),
+    rainfall: Number(snap.rainfall ?? 0),
+    temperature: Number(snap.temperature ?? 0),
+    humidity: Number(snap.humidity ?? 0),
+    soil_type: String(snap.soil_type ?? ""),
+    irrigation: Number(snap.irrigation ?? 0),
+    explanation: row.explanation,
+    tips: (row.tips as string[]) ?? [],
+    climate_warning: row.climate_warning,
+  };
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
-      accounts: {},
-      userEmails: {},
-      userHistory: {},
+      accessToken: null,
+      activeFarmId: null,
+      history: [],
+      historyLoading: false,
       isAuthenticated: false,
-      
+      bootstrapped: false,
+
       showLoginModal: false,
       showRegisterModal: false,
       setShowLoginModal: (show) => set({ showLoginModal: show }),
       setShowRegisterModal: (show) => set({ showRegisterModal: show }),
 
-      login: (username, password) => {
-        const uLower = username.toLowerCase().trim();
-        const storedPassword = get().accounts[uLower];
-        
-        if (!storedPassword) {
-          return { success: false, message: "Username not found. Please register." };
+      bootstrap: async () => {
+        if (typeof window === "undefined") return;
+
+        const token = get().accessToken;
+        if (token) setAccessToken(token);
+
+        try {
+          // Prefer refresh cookie — renews access even if local token expired
+          const data = await refreshSession();
+          set({
+            accessToken: data.access_token,
+            user: toUser(data.user),
+            isAuthenticated: true,
+            showLoginModal: false,
+            showRegisterModal: false,
+          });
+          const farms = await listFarms().catch(() => []);
+          if (farms[0]) set({ activeFarmId: farms[0].id });
+          await get().loadHistory();
+        } catch {
+          if (token) {
+            // Stale token / no refresh cookie
+            setAccessToken(null);
+            set({
+              user: null,
+              accessToken: null,
+              activeFarmId: null,
+              history: [],
+              isAuthenticated: false,
+            });
+          }
+        } finally {
+          set({ bootstrapped: true });
         }
-        
-        if (storedPassword !== password) {
-          return { success: false, message: "Incorrect password." };
-        }
-        
-        const email = get().userEmails[uLower] || "";
-        
-        set({
-          user: { username: username.trim(), email },
-          isAuthenticated: true,
-          showLoginModal: false, // close modal on success
-        });
-        
-        return { success: true, message: `Welcome back, ${username}!` };
       },
 
-      register: (username, email, password) => {
-        const uTrim = username.trim();
-        const uLower = uTrim.toLowerCase();
-        
-        if (!uTrim || !email || !password) {
-          return { success: false, message: "All fields are required." };
+      login: async (username, password) => {
+        try {
+          const data = await loginUser(username, password);
+          set({
+            accessToken: data.access_token,
+            user: toUser(data.user),
+            isAuthenticated: true,
+            showLoginModal: false,
+          });
+          const farms = await listFarms().catch(() => []);
+          if (farms[0]) set({ activeFarmId: farms[0].id });
+          await get().loadHistory();
+          return {
+            success: true,
+            message: `Welcome back, ${data.user.username}!`,
+          };
+        } catch (e) {
+          return {
+            success: false,
+            message: e instanceof Error ? e.message : "Login failed",
+          };
         }
-        
-        if (get().accounts[uLower]) {
-          return { success: false, message: "Username is already taken." };
-        }
-        
-        // Save account credentials and email
-        const newAccounts = { ...get().accounts, [uLower]: password };
-        const newEmails = { ...get().userEmails, [uLower]: email.trim() };
-        
-        set({
-          accounts: newAccounts,
-          userEmails: newEmails,
-          user: { username: uTrim, email: email.trim() },
-          isAuthenticated: true,
-          showRegisterModal: false, // close modal on success
-        });
-        
-        return { success: true, message: "Registration successful!" };
       },
 
-      logout: () => {
+      register: async (username, email, password) => {
+        try {
+          const data = await registerUser(username, email, password);
+          set({
+            accessToken: data.access_token,
+            user: toUser(data.user),
+            isAuthenticated: true,
+            showRegisterModal: false,
+          });
+          set({ activeFarmId: null, history: [] });
+          return { success: true, message: "Registration successful!" };
+        } catch (e) {
+          return {
+            success: false,
+            message: e instanceof Error ? e.message : "Registration failed",
+          };
+        }
+      },
+
+      logout: async () => {
+        await logoutUser();
         set({
           user: null,
+          accessToken: null,
+          activeFarmId: null,
+          history: [],
           isAuthenticated: false,
         });
       },
 
-      addHistoryEntry: (entry) => {
-        const currentUser = get().user;
-        if (!currentUser) return;
-        
-        const uLower = currentUser.username.toLowerCase();
-        const newEntry: HistoryEntry = {
-          ...entry,
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: new Date().toISOString(),
-        };
-        
-        const currentHistory = get().userHistory[uLower] || [];
-        const updatedHistory = [newEntry, ...currentHistory];
-        
-        set({
-          userHistory: {
-            ...get().userHistory,
-            [uLower]: updatedHistory,
-          },
-        });
+      loadHistory: async () => {
+        const { isAuthenticated, activeFarmId } = get();
+        if (!isAuthenticated) {
+          set({ history: [] });
+          return;
+        }
+
+        set({ historyLoading: true });
+        try {
+          let farmId = activeFarmId;
+          if (!farmId) {
+            const farms = await listFarms();
+            farmId = farms[0]?.id ?? null;
+            set({ activeFarmId: farmId });
+          }
+          if (!farmId) {
+            set({ history: [] });
+            return;
+          }
+          const rows = await listFarmRecommendations(farmId);
+          set({ history: rows.map(mapPersisted) });
+        } catch {
+          set({ history: [] });
+        } finally {
+          set({ historyLoading: false });
+        }
       },
 
-      getHistory: () => {
-        const currentUser = get().user;
-        if (!currentUser) return [];
-        return get().userHistory[currentUser.username.toLowerCase()] || [];
+      getHistory: () => get().history,
+
+      runRecommendation: async (input) => {
+        const { isAuthenticated } = get();
+
+        if (!isAuthenticated) {
+          return getRecommendation(input);
+        }
+
+        // Ensure token is in module scope (persist hydrate)
+        const token = get().accessToken;
+        if (token && !getAccessToken()) setAccessToken(token);
+
+        const farm = await ensureDefaultFarm(input.region);
+        set({ activeFarmId: farm.id });
+
+        const { region: _r, language: _l, ...soil } = input;
+        await upsertSoil(farm.id, soil);
+
+        const row = await recommendForFarm(farm.id, input);
+        const mapped = mapPersisted(row);
+        set({ history: [mapped, ...get().history.filter((h) => h.id !== mapped.id)] });
+
+        return persistedToRecommendationResponse(row);
       },
     }),
     {
-      name: "agrosphere-auth-storage",
+      name: "agrosphere-auth-v2",
       partialize: (state) => ({
         user: state.user,
-        accounts: state.accounts,
-        userEmails: state.userEmails,
-        userHistory: state.userHistory,
+        accessToken: state.accessToken,
+        activeFarmId: state.activeFarmId,
         isAuthenticated: state.isAuthenticated,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.accessToken) setAccessToken(state.accessToken);
+      },
     }
   )
 );
