@@ -24,6 +24,9 @@ from routers.auth import router as auth_router
 from routers.crops import router as crops_router
 from routers.farms import router as farms_router
 from routers.weather import router as weather_router
+from routers.assistant import router as assistant_router
+from routers.alerts import router as alerts_router
+from routers.economics import router as economics_router
 from services.ml_bridge import load_model
 
 
@@ -76,6 +79,9 @@ app.include_router(auth_router)
 app.include_router(crops_router)
 app.include_router(farms_router)
 app.include_router(weather_router)
+app.include_router(assistant_router)
+app.include_router(alerts_router)
+app.include_router(economics_router)
 
 
 @app.get("/health")

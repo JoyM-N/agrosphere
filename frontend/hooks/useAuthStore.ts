@@ -22,7 +22,7 @@ import {
   getRecommendation,
   RecommendationResponse,
 } from "@/lib/api";
-import { markAskLocationAfterAuth } from "@/lib/locationPrompt";
+import { markAskLocationAfterAuth, clearAskLocationAfterAuth } from "@/lib/locationPrompt";
 
 export interface HistoryEntry {
   id: string;
@@ -62,11 +62,14 @@ interface AuthState {
   historyLoading: boolean;
   isAuthenticated: boolean;
   bootstrapped: boolean;
+  /** Soft GPS prompt after a fresh login/register (not persisted). */
+  pendingLocationPrompt: boolean;
 
   showLoginModal: boolean;
   showRegisterModal: boolean;
   setShowLoginModal: (show: boolean) => void;
   setShowRegisterModal: (show: boolean) => void;
+  clearPendingLocationPrompt: () => void;
 
   bootstrap: () => Promise<void>;
   login: (
@@ -130,11 +133,16 @@ export const useAuthStore = create<AuthState>()(
       historyLoading: false,
       isAuthenticated: false,
       bootstrapped: false,
+      pendingLocationPrompt: false,
 
       showLoginModal: false,
       showRegisterModal: false,
       setShowLoginModal: (show) => set({ showLoginModal: show }),
       setShowRegisterModal: (show) => set({ showRegisterModal: show }),
+      clearPendingLocationPrompt: () => {
+        clearAskLocationAfterAuth();
+        set({ pendingLocationPrompt: false });
+      },
 
       bootstrap: async () => {
         if (typeof window === "undefined") return;
@@ -185,6 +193,7 @@ export const useAuthStore = create<AuthState>()(
           if (farms[0]) set({ activeFarmId: farms[0].id });
           await get().loadHistory();
           markAskLocationAfterAuth();
+          set({ pendingLocationPrompt: true });
           return {
             success: true,
             message: `Welcome back, ${data.user.username}!`,
@@ -208,6 +217,7 @@ export const useAuthStore = create<AuthState>()(
           });
           set({ activeFarmId: null, history: [] });
           markAskLocationAfterAuth();
+          set({ pendingLocationPrompt: true });
           return { success: true, message: "Registration successful!" };
         } catch (e) {
           return {
@@ -219,12 +229,14 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         await logoutUser();
+        clearAskLocationAfterAuth();
         set({
           user: null,
           accessToken: null,
           activeFarmId: null,
           history: [],
           isAuthenticated: false,
+          pendingLocationPrompt: false,
         });
       },
 

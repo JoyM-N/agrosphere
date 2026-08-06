@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, CloudRain, Shield, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -12,27 +12,31 @@ import {
   updateFarm,
 } from "@/lib/api";
 import { getBrowserLocation, hasConfirmedCoords } from "@/lib/location";
-import {
-  clearAskLocationAfterAuth,
-  shouldAskLocationAfterAuth,
-} from "@/lib/locationPrompt";
+import { clearAskLocationAfterAuth } from "@/lib/locationPrompt";
 
 /**
  * Soft prompt after login/register → then browser geolocation dialog.
- * Skips if farm already has a confirmed pin.
+ * Driven by auth store pendingLocationPrompt (set on login/register).
  */
 export default function LocationPermissionPrompt() {
+  const pendingLocationPrompt = useAuthStore((s) => s.pendingLocationPrompt);
+  const clearPendingLocationPrompt = useAuthStore(
+    (s) => s.clearPendingLocationPrompt
+  );
   const activeFarmId = useAuthStore((s) => s.activeFarmId);
+
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const started = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!shouldAskLocationAfterAuth()) return;
+    if (!pendingLocationPrompt || started.current) return;
+    started.current = true;
 
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
       try {
-        let farmId = activeFarmId;
+        let farmId = activeFarmId ?? useAuthStore.getState().activeFarmId;
         const farm = farmId
           ? await getFarm(farmId)
           : await ensureDefaultFarm("highland");
@@ -40,35 +44,40 @@ export default function LocationPermissionPrompt() {
           useAuthStore.setState({ activeFarmId: farm.id });
         }
         if (cancelled) return;
+
+        // Already has a real pin — don't nag
         if (hasConfirmedCoords(farm.latitude, farm.longitude)) {
+          clearPendingLocationPrompt();
           clearAskLocationAfterAuth();
           return;
         }
-        clearAskLocationAfterAuth();
         setOpen(true);
       } catch {
-        if (!cancelled) {
-          clearAskLocationAfterAuth();
-          setOpen(true);
-        }
+        if (!cancelled) setOpen(true);
       }
-    })();
+    }, 450);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [activeFarmId]);
+  }, [pendingLocationPrompt, activeFarmId, clearPendingLocationPrompt]);
 
-  const dismiss = () => setOpen(false);
+  const finish = () => {
+    setOpen(false);
+    clearPendingLocationPrompt();
+    clearAskLocationAfterAuth();
+  };
 
   const handleAllow = async () => {
     setBusy(true);
     try {
-      const pos = await getBrowserLocation();
+      const pos = await getBrowserLocation(15000);
       if (!pos) {
         toast.error(
           "Location permission denied or unavailable. You can set it anytime under Farm location."
         );
-        setOpen(false);
+        finish();
         return;
       }
 
@@ -90,7 +99,7 @@ export default function LocationPermissionPrompt() {
           ? `Farm location saved (±${Math.round(pos.accuracyM)} m)`
           : "Farm location saved from GPS"
       );
-      setOpen(false);
+      finish();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save location");
     } finally {
@@ -107,7 +116,7 @@ export default function LocationPermissionPrompt() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 bg-black/45 backdrop-blur-sm"
-            onClick={busy ? undefined : dismiss}
+            onClick={busy ? undefined : finish}
           />
 
           <motion.div
@@ -122,7 +131,7 @@ export default function LocationPermissionPrompt() {
           >
             <button
               type="button"
-              onClick={dismiss}
+              onClick={finish}
               disabled={busy}
               className="absolute right-3.5 top-3.5 flex h-8 w-8 items-center justify-center rounded-lg"
               style={{ color: "#A39686" }}
@@ -170,10 +179,20 @@ export default function LocationPermissionPrompt() {
                 <li
                   key={item.text}
                   className="flex items-start gap-2.5 rounded-xl px-3 py-2.5"
-                  style={{ background: "rgba(247,244,235,0.9)", border: "1px solid #E3DAC9" }}
+                  style={{
+                    background: "rgba(247,244,235,0.9)",
+                    border: "1px solid #E3DAC9",
+                  }}
                 >
-                  <item.icon size={15} color="#4A9661" style={{ marginTop: 2, flexShrink: 0 }} />
-                  <span className="text-[0.8rem] leading-snug" style={{ color: "#6B5B49" }}>
+                  <item.icon
+                    size={15}
+                    color="#4A9661"
+                    style={{ marginTop: 2, flexShrink: 0 }}
+                  />
+                  <span
+                    className="text-[0.8rem] leading-snug"
+                    style={{ color: "#6B5B49" }}
+                  >
                     {item.text}
                   </span>
                 </li>
@@ -203,7 +222,7 @@ export default function LocationPermissionPrompt() {
                 type="button"
                 className="agro-btn-ghost w-full justify-center"
                 disabled={busy}
-                onClick={dismiss}
+                onClick={finish}
               >
                 Not now
               </button>

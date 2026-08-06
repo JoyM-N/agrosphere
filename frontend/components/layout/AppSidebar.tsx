@@ -16,9 +16,9 @@ const NAV = [
   { label: "Farm location", href: "/location", icon: MapPin },
   { label: "Recommendations", href: "/recommend", icon: Sprout },
   { label: "Weather", href: "/weather", icon: CloudRain },
-  { label: "Assistant", href: "/assistant", icon: Bot, soon: true },
-  { label: "Alerts", href: "/alerts", icon: Bell, soon: true },
-  { label: "Economics", href: "/economics", icon: TrendingUp, soon: true },
+  { label: "Assistant", href: "/assistant", icon: Bot },
+  { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Economics", href: "/economics", icon: TrendingUp },
 ] as const;
 
 function NavLink({

@@ -415,3 +415,151 @@ export async function listFarmWeatherHistory(
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }
+
+/* ── Assistant + Alerts (Phase 3) ─────────────────────────────────────── */
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  source: string;
+  farm_id: string | null;
+  context_used: boolean;
+  has_recommendation: boolean;
+  has_weather: boolean;
+  has_confirmed_location?: boolean;
+}
+
+export async function sendAssistantChat(input: {
+  message: string;
+  farm_id?: string | null;
+  history?: ChatMessage[];
+  language?: string;
+}): Promise<ChatResponse> {
+  const res = await apiFetch("/api/assistant/chat", {
+    method: "POST",
+    auth: true,
+    body: JSON.stringify({
+      message: input.message,
+      farm_id: input.farm_id || undefined,
+      history: input.history ?? [],
+      language: input.language ?? "en",
+    }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function getAssistantContext(
+  farmId?: string | null
+): Promise<{
+  has_recommendation: boolean;
+  has_weather: boolean;
+  has_confirmed_location: boolean;
+  farm: { id: string; name: string } | null;
+}> {
+  const q = farmId ? `?farm_id=${encodeURIComponent(farmId)}` : "";
+  const res = await apiFetch(`/api/assistant/context${q}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export interface FarmAlert {
+  level: string;
+  kind: string;
+  message: string;
+  source: string;
+}
+
+export interface AlertsResponse {
+  farm_id: string | null;
+  farm_name?: string | null;
+  region?: string | null;
+  generated_at: string;
+  weather_ok: boolean;
+  season?: string | null;
+  features: Record<string, unknown>;
+  alerts: FarmAlert[];
+  summary: { total: number; warnings: number; watches: number };
+}
+
+export async function getFarmAlerts(
+  farmId?: string | null
+): Promise<AlertsResponse> {
+  const q = farmId ? `?farm_id=${encodeURIComponent(farmId)}` : "";
+  const res = await apiFetch(`/api/alerts${q}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+/* ── Economics & sustainability (Phase 4) ─────────────────────────────── */
+
+export interface CropEconomicsRow {
+  crop: string;
+  display: string;
+  unit: string;
+  cycle_months: number;
+  water_intensity: string;
+  yield_per_acre: number;
+  price_kes: number;
+  input_cost_kes: number;
+  labour_cost_kes: number;
+  estimated_cost_kes_per_acre: number;
+  estimated_revenue_kes_per_acre: number;
+  estimated_margin_kes_per_acre: number;
+  margin_pct: number;
+  assumptions?: string[];
+  ml_confidence_pct?: string;
+  ml_rank?: number;
+}
+
+export interface SustainabilityPillar {
+  score: number;
+  reasons: string[];
+}
+
+export interface SustainabilityReport {
+  score: number;
+  grade: string;
+  method: string;
+  method_note: string;
+  pillars: {
+    water: SustainabilityPillar;
+    soil: SustainabilityPillar;
+    climate: SustainabilityPillar;
+  };
+  tips: string[];
+}
+
+export interface EconomicsResponse {
+  farm_id: string | null;
+  farm_name?: string | null;
+  region?: string | null;
+  currency: string;
+  source: string;
+  disclaimer: string;
+  generated_at: string;
+  focus: CropEconomicsRow | null;
+  alternatives: CropEconomicsRow[];
+  sustainability: SustainabilityReport;
+  price_table: CropEconomicsRow[];
+  has_recommendation?: boolean;
+  weather_features?: Record<string, unknown>;
+  message?: string | null;
+}
+
+export async function getFarmEconomics(
+  farmId?: string | null,
+  crop?: string | null
+): Promise<EconomicsResponse> {
+  const q = new URLSearchParams();
+  if (farmId) q.set("farm_id", farmId);
+  if (crop) q.set("crop", crop);
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  const res = await apiFetch(`/api/economics${suffix}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
