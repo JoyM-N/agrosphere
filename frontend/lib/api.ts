@@ -13,6 +13,9 @@ export interface FarmInput {
   region: string;
   irrigation: 0 | 1;
   language?: string;
+  use_live_weather?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface CropResult {
@@ -34,6 +37,7 @@ export interface RecommendationResponse {
   explanation: string;
   tips: string[];
   climate_warning: string;
+  weather?: Record<string, unknown> | null;
 }
 
 export interface AuthUser {
@@ -73,6 +77,8 @@ export interface PersistedRecommendation {
   model_version: string;
   input_snapshot: Record<string, unknown>;
   created_at: string;
+  weather_snapshot_id?: string | null;
+  weather?: Record<string, unknown> | null;
 }
 
 /** Module-level access token so API helpers stay outside React. */
@@ -210,6 +216,12 @@ export async function listFarms(): Promise<Farm[]> {
   return res.json();
 }
 
+export async function getFarm(farmId: string): Promise<Farm> {
+  const res = await apiFetch(`/api/farms/${farmId}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
 export async function createFarm(input: {
   name: string;
   region: string;
@@ -227,7 +239,12 @@ export async function createFarm(input: {
 
 export async function updateFarm(
   farmId: string,
-  patch: { name?: string; region?: string }
+  patch: {
+    name?: string;
+    region?: string;
+    latitude?: number;
+    longitude?: number;
+  }
 ): Promise<Farm> {
   const res = await apiFetch(`/api/farms/${farmId}`, {
     method: "PATCH",
@@ -268,7 +285,10 @@ export async function recommendForFarm(
   const res = await apiFetch(`/api/farms/${farmId}/recommend`, {
     method: "POST",
     auth: true,
-    body: JSON.stringify(rest),
+    body: JSON.stringify({
+      ...rest,
+      use_live_weather: input.use_live_weather ?? true,
+    }),
   });
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
@@ -299,6 +319,7 @@ export function persistedToRecommendationResponse(
     explanation: row.explanation,
     tips: row.tips as string[],
     climate_warning: row.climate_warning,
+    weather: row.weather ?? null,
   };
 }
 
@@ -321,6 +342,8 @@ export interface WeatherAlert {
 }
 
 export interface WeatherSnapshot {
+  id?: string | null;
+  cached?: boolean;
   latitude: number;
   longitude: number;
   timezone: string;
@@ -344,6 +367,7 @@ export interface WeatherSnapshot {
   suggest_humidity: number;
   suggest_rainfall_mm_year_proxy: number;
   fetched_at: string;
+  features?: Record<string, unknown>;
 }
 
 export async function getWeatherForecast(params: {
@@ -360,8 +384,34 @@ export async function getWeatherForecast(params: {
   return res.json();
 }
 
-export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
-  const res = await apiFetch(`/api/weather/farms/${farmId}`, { auth: true });
+export async function getFarmWeather(
+  farmId: string,
+  refresh = false
+): Promise<WeatherSnapshot> {
+  const q = refresh ? "?refresh=true" : "";
+  const res = await apiFetch(`/api/weather/farms/${farmId}${q}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function listFarmWeatherHistory(
+  farmId: string,
+  limit = 10
+): Promise<
+  Array<{
+    id: string;
+    fetched_at: string;
+    latitude: number;
+    longitude: number;
+    source: string;
+    features: Record<string, unknown>;
+    alerts: Array<{ level: string; kind: string; message: string }>;
+  }>
+> {
+  const res = await apiFetch(
+    `/api/weather/farms/${farmId}/history?limit=${limit}`,
+    { auth: true }
+  );
   if (!res.ok) throw new Error(await parseError(res));
   return res.json();
 }

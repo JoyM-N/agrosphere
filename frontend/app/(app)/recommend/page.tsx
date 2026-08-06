@@ -1,17 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Sprout, ChevronRight, ChevronLeft, Leaf,
   Droplets, Thermometer, Wind, FlaskConical,
-  CloudRain, MapPin, Check, Loader2,
+  CloudRain, MapPin, Check, Loader2, AlertTriangle,
 } from "lucide-react";
-import Navbar from "@/components/layout/Navbar";
 import { toast } from "sonner";
 import { useAuthStore } from "@/hooks/useAuthStore";
-import { getWeatherForecast, type WeatherAlert } from "@/lib/api";
+import {
+  ensureDefaultFarm,
+  getFarm,
+  getFarmWeather,
+  getWeatherForecast,
+  updateFarm,
+  type WeatherAlert,
+} from "@/lib/api";
+import {
+  formatCoords,
+  getBrowserLocation,
+  hasConfirmedCoords,
+} from "@/lib/location";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 interface FarmData {
@@ -185,15 +197,52 @@ export default function RecommendPage() {
   const [loading,   setLoading]   = useState(false);
   
   // Auth Integration
-  const { isAuthenticated, runRecommendation } = useAuthStore();
+  const { isAuthenticated, runRecommendation, activeFarmId } = useAuthStore();
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlert[]>([]);
+  const [weatherCoords, setWeatherCoords] = useState<{
+    lat: number;
+    lon: number;
+  } | null>(null);
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
 
   const [data, setData] = useState<FarmData>({
     nitrogen: "", phosphorus: "", potassium: "",
     ph: "", rainfall: "", temperature: "", humidity: "",
     soil_type: "", season: "", region: "", irrigation: "",
   });
+
+  // Prefill region + coords from confirmed farm location
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        let farmId = activeFarmId;
+        const farm = farmId
+          ? await getFarm(farmId)
+          : await ensureDefaultFarm("highland");
+        if (cancelled) return;
+        if (!farmId) useAuthStore.setState({ activeFarmId: farm.id });
+        setData((prev) => ({
+          ...prev,
+          region: prev.region || farm.region || "",
+        }));
+        if (hasConfirmedCoords(farm.latitude, farm.longitude)) {
+          setWeatherCoords({ lat: farm.latitude!, lon: farm.longitude! });
+          setLocationConfirmed(true);
+          setLocationLabel(formatCoords(farm.latitude!, farm.longitude!));
+        } else {
+          setLocationConfirmed(false);
+          setLocationLabel(null);
+        }
+      } catch {
+        /* ignore — user can still pick region */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, activeFarmId]);
 
   const set = (key: keyof FarmData) => (value: string) =>
     setData((prev) => ({ ...prev, [key]: value }));
@@ -203,25 +252,55 @@ export default function RecommendPage() {
     const toastId = toast.loading("Fetching live weather…");
     try {
       let snapshot;
-      if (data.region) {
+
+      if (isAuthenticated) {
+        let farmId = activeFarmId;
+        let farm = farmId ? await getFarm(farmId) : await ensureDefaultFarm(data.region || "highland");
+        farmId = farm.id;
+        useAuthStore.setState({ activeFarmId: farmId });
+
+        // 1) Confirmed farm pin → farm weather API
+        if (hasConfirmedCoords(farm.latitude, farm.longitude)) {
+          snapshot = await getFarmWeather(farmId);
+          setLocationConfirmed(true);
+        } else {
+          // 2) Try GPS, persist, then refresh farm weather
+          const gps = await getBrowserLocation();
+          if (gps) {
+            farm = await updateFarm(farmId, {
+              latitude: gps.lat,
+              longitude: gps.lon,
+              ...(data.region
+                ? {
+                    region: data.region as
+                      | "coastal"
+                      | "highland"
+                      | "semi_arid"
+                      | "sub_humid"
+                      | "arid",
+                  }
+                : {}),
+            });
+            snapshot = await getFarmWeather(farmId, true);
+            setLocationConfirmed(true);
+            toast.message("Saved GPS pin to your farm", { id: toastId });
+          } else if (data.region) {
+            // 3) Region centroid (approx) — urge confirm on /location
+            snapshot = await getWeatherForecast({ region: data.region });
+            setLocationConfirmed(false);
+            toast.message(
+              "Using region estimate — confirm farm location for accurate weather.",
+              { id: toastId }
+            );
+          } else {
+            snapshot = await getFarmWeather(farmId);
+            setLocationConfirmed(false);
+          }
+        }
+      } else if (data.region) {
         snapshot = await getWeatherForecast({ region: data.region });
       } else {
-        const coords = await new Promise<{ lat: number; lon: number } | null>((resolve) => {
-          if (!navigator.geolocation) {
-            resolve(null);
-            return;
-          }
-          navigator.geolocation.getCurrentPosition(
-            (pos) =>
-              resolve({
-                lat: pos.coords.latitude,
-                lon: pos.coords.longitude,
-              }),
-            () => resolve(null),
-            { timeout: 8000 }
-          );
-        });
-
+        const coords = await getBrowserLocation();
         if (coords) {
           snapshot = await getWeatherForecast({
             latitude: coords.lat,
@@ -229,12 +308,18 @@ export default function RecommendPage() {
           });
         } else {
           snapshot = await getWeatherForecast({ region: "highland" });
-          toast.message("Using highland region defaults — pick your region on the next step for better accuracy.", {
-            id: toastId,
-          });
+          toast.message(
+            "Using highland region defaults — pick your region on the next step for better accuracy.",
+            { id: toastId }
+          );
         }
       }
 
+      setWeatherCoords({
+        lat: snapshot.latitude,
+        lon: snapshot.longitude,
+      });
+      setLocationLabel(formatCoords(snapshot.latitude, snapshot.longitude));
       setData((prev) => ({
         ...prev,
         temperature: String(snapshot.suggest_temperature),
@@ -242,11 +327,13 @@ export default function RecommendPage() {
         rainfall: String(Math.round(snapshot.suggest_rainfall_mm_year_proxy)),
       }));
       setWeatherAlerts(snapshot.alerts ?? []);
-      sessionStorage.setItem(
-        "agrosphere_weather",
-        JSON.stringify(snapshot)
+      sessionStorage.setItem("agrosphere_weather", JSON.stringify(snapshot));
+      toast.success(
+        snapshot.cached
+          ? "Climate filled from cached farm weather"
+          : "Climate fields filled from live weather",
+        { id: toastId }
       );
-      toast.success("Climate fields filled from live weather", { id: toastId });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not fetch weather",
@@ -315,6 +402,10 @@ export default function RecommendPage() {
         region:      data.region,
         irrigation:  (parseInt(data.irrigation, 10) === 1 ? 1 : 0) as 0 | 1,
         language:    "en",
+        use_live_weather: true,
+        ...(weatherCoords
+          ? { latitude: weatherCoords.lat, longitude: weatherCoords.lon }
+          : {}),
       };
 
       const result = await runRecommendation(payload);
@@ -346,11 +437,9 @@ export default function RecommendPage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F4EB" }}>
-      <Navbar />
-
       <div style={{
         maxWidth: 680, margin: "0 auto",
-        padding: "6rem 1.5rem 4rem",
+        padding: "2rem 1.5rem 4rem",
         minHeight: "100vh",
         display: "flex", flexDirection: "column", justifyContent: "center",
       }}>
@@ -482,6 +571,57 @@ export default function RecommendPage() {
                   <p style={{ color: "#A39686", fontSize: "0.85rem", marginBottom: "1rem" }}>
                     Enter averages for your area, or fill them from live weather.
                   </p>
+
+                  {isAuthenticated && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        flexWrap: "wrap",
+                        marginBottom: "1rem",
+                        padding: "0.75rem 0.95rem",
+                        borderRadius: 12,
+                        border: locationConfirmed
+                          ? "1px solid rgba(74,150,97,0.3)"
+                          : "1px solid rgba(229,139,25,0.35)",
+                        background: locationConfirmed
+                          ? "rgba(74,150,97,0.07)"
+                          : "rgba(229,139,25,0.08)",
+                      }}
+                    >
+                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        {locationConfirmed ? (
+                          <Check size={15} color="#4A9661" style={{ marginTop: 2, flexShrink: 0 }} />
+                        ) : (
+                          <AlertTriangle size={15} color="#E58B19" style={{ marginTop: 2, flexShrink: 0 }} />
+                        )}
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: "0.8rem", color: "#2C2010" }}>
+                            {locationConfirmed
+                              ? "Using confirmed farm location"
+                              : "Farm location not confirmed"}
+                          </div>
+                          <p style={{ fontSize: "0.72rem", color: "#6B5B49", marginTop: 2 }}>
+                            {locationLabel
+                              ? locationLabel
+                              : "Confirm GPS/map pin so live weather matches your field."}
+                          </p>
+                        </div>
+                      </div>
+                      <Link href="/location">
+                        <button
+                          type="button"
+                          className="agro-btn-ghost"
+                          style={{ fontSize: "0.72rem", padding: "0.4rem 0.7rem" }}
+                        >
+                          <MapPin size={12} />
+                          {locationConfirmed ? "Update" : "Confirm"}
+                        </button>
+                      </Link>
+                    </div>
+                  )}
 
                   <motion.button
                     type="button"

@@ -17,10 +17,12 @@ import {
   refreshSession,
   registerUser,
   setAccessToken,
+  updateFarm,
   upsertSoil,
   getRecommendation,
   RecommendationResponse,
 } from "@/lib/api";
+import { markAskLocationAfterAuth } from "@/lib/locationPrompt";
 
 export interface HistoryEntry {
   id: string;
@@ -182,6 +184,7 @@ export const useAuthStore = create<AuthState>()(
           const farms = await listFarms().catch(() => []);
           if (farms[0]) set({ activeFarmId: farms[0].id });
           await get().loadHistory();
+          markAskLocationAfterAuth();
           return {
             success: true,
             message: `Welcome back, ${data.user.username}!`,
@@ -204,6 +207,7 @@ export const useAuthStore = create<AuthState>()(
             showRegisterModal: false,
           });
           set({ activeFarmId: null, history: [] });
+          markAskLocationAfterAuth();
           return { success: true, message: "Registration successful!" };
         } catch (e) {
           return {
@@ -266,12 +270,41 @@ export const useAuthStore = create<AuthState>()(
         if (token && !getAccessToken()) setAccessToken(token);
 
         const farm = await ensureDefaultFarm(input.region);
+        // Prefer explicit coords from the form; else reuse confirmed farm pin
+        let latitude = input.latitude;
+        let longitude = input.longitude;
+        if (latitude != null && longitude != null) {
+          await updateFarm(farm.id, {
+            latitude,
+            longitude,
+            region: input.region,
+          }).catch(() => undefined);
+        } else if (farm.latitude != null && farm.longitude != null) {
+          latitude = farm.latitude;
+          longitude = farm.longitude;
+        }
         set({ activeFarmId: farm.id });
 
         const { region: _r, language: _l, ...soil } = input;
-        await upsertSoil(farm.id, soil);
+        await upsertSoil(farm.id, {
+          nitrogen: soil.nitrogen,
+          phosphorus: soil.phosphorus,
+          potassium: soil.potassium,
+          ph: soil.ph,
+          rainfall: soil.rainfall,
+          temperature: soil.temperature,
+          humidity: soil.humidity,
+          soil_type: soil.soil_type,
+          season: soil.season,
+          irrigation: soil.irrigation,
+        });
 
-        const row = await recommendForFarm(farm.id, input);
+        const row = await recommendForFarm(farm.id, {
+          ...input,
+          latitude,
+          longitude,
+          use_live_weather: input.use_live_weather ?? true,
+        });
         const mapped = mapPersisted(row);
         set({ history: [mapped, ...get().history.filter((h) => h.id !== mapped.id)] });
 

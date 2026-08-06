@@ -1,4 +1,4 @@
-"""SQLModel table definitions — Phase 1 spine."""
+"""SQLModel table definitions — Phase 1 spine + weather snapshots."""
 
 from datetime import datetime, timezone
 from enum import Enum
@@ -71,6 +71,35 @@ class SoilProfile(SQLModel, table=True):
     )
 
 
+class WeatherSnapshotRecord(SQLModel, table=True):
+    """Persisted Open-Meteo forecast for a farm (or ad-hoc lat/lng)."""
+
+    __tablename__ = "weather_snapshots"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    farm_id: Optional[UUID] = Field(
+        default=None, foreign_key="farms.id", index=True
+    )
+    user_id: Optional[UUID] = Field(
+        default=None, foreign_key="users.id", index=True
+    )
+    latitude: float
+    longitude: float
+    source: str = Field(default="open-meteo", max_length=40)
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False),
+    )
+    features: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB, nullable=False),
+    )
+    fetched_at: datetime = Field(
+        default_factory=utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+
 class Recommendation(SQLModel, table=True):
     __tablename__ = "recommendations"
 
@@ -97,6 +126,9 @@ class Recommendation(SQLModel, table=True):
         default="", sa_column=Column(Text, nullable=False)
     )
     model_version: str = Field(max_length=40)
+    weather_snapshot_id: Optional[UUID] = Field(
+        default=None, foreign_key="weather_snapshots.id", index=True
+    )
     created_at: datetime = Field(
         default_factory=utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),

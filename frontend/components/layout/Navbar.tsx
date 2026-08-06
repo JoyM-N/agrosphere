@@ -39,12 +39,13 @@ export default function Navbar() {
   }, []);
 
 
-  const links = [
+  // Marketing nav only — logged-in users use the app sidebar (no Home there)
+  const guestLinks = [
     { label: "Home", href: "/" },
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Get Recommendation", href: "/recommend" },
     { label: "How It Works", href: "/#how-it-works" },
   ];
+  const links = mounted && isAuthenticated ? [] : guestLinks;
+  const brandHref = mounted && isAuthenticated ? "/hub" : "/";
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +114,7 @@ export default function Navbar() {
                         flex items-center justify-between max-w-[1400px] mx-auto">
 
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group">
+          <Link href={brandHref} className="flex items-center gap-2.5 group">
             <motion.div
               whileHover={{ rotate: 12, scale: 1.08 }}
               transition={{ type: "spring", stiffness: 400, damping: 15 }}
@@ -151,6 +152,13 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-3">
             {mounted && isAuthenticated ? (
               <div className="flex items-center gap-3">
+                <Link
+                  href="/hub"
+                  className="agro-btn agro-btn-sm flex items-center gap-1.5"
+                >
+                  Open app
+                  <ChevronRight size={13} />
+                </Link>
                 <div style={{ background: "rgba(229,139,25,0.08)", border: "1px solid rgba(229,139,25,0.2)" }}
                   className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl">
                   <div className="w-6 h-6 rounded-lg bg-agro-amber flex items-center justify-center text-xs font-bold text-agro-bg uppercase">
@@ -268,6 +276,14 @@ export default function Navbar() {
                           {user?.username}
                         </span>
                       </div>
+                      <Link
+                        href="/hub"
+                        onClick={() => setOpen(false)}
+                        className="agro-btn w-full justify-center"
+                      >
+                        Open app
+                        <ChevronRight size={15} />
+                      </Link>
                       <button
                         onClick={() => {
                           void logout().then(() => {

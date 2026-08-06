@@ -12,6 +12,12 @@ from core.deps import CurrentUser, SessionDep, require_farm_owner
 from db.models import Farm, Recommendation, SoilProfile
 from services.gemini_service import explain_recommendation
 from services.ml_bridge import predict
+from services.weather_enrichment import (
+    apply_weather_to_farm_data,
+    escalate_drought_risk,
+    get_or_fetch_farm_weather,
+    merge_climate_warning,
+)
 
 router = APIRouter(prefix="/api/farms", tags=["farms"])
 
@@ -103,6 +109,10 @@ class FarmRecommendRequest(BaseModel):
     irrigation: Optional[Literal[0, 1]] = None
     language: str = "en"
     top_k: int = Field(5, ge=1, le=10)
+    # When true (default), live/cached weather overwrites climate inputs for ML
+    use_live_weather: bool = True
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
 class RecommendationOut(BaseModel):
@@ -118,6 +128,8 @@ class RecommendationOut(BaseModel):
     model_version: str
     input_snapshot: dict[str, Any]
     created_at: datetime
+    weather_snapshot_id: Optional[UUID] = None
+    weather: Optional[dict[str, Any]] = None
 
 
 def _farm_out(farm: Farm) -> FarmOut:
@@ -291,6 +303,7 @@ def list_recommendations(
             model_version=r.model_version,
             input_snapshot=r.input_snapshot,
             created_at=r.created_at,
+            weather_snapshot_id=r.weather_snapshot_id,
         )
         for r in rows
     ]
@@ -309,6 +322,14 @@ async def recommend_for_farm(
 ) -> RecommendationOut:
     farm = require_farm_owner(session, user, farm_id)
 
+    # Persist coords on the farm when the client sends them (GPS / map)
+    if body.latitude is not None and body.longitude is not None:
+        farm.latitude = body.latitude
+        farm.longitude = body.longitude
+        session.add(farm)
+        session.commit()
+        session.refresh(farm)
+
     latest = session.exec(
         select(SoilProfile)
         .where(SoilProfile.farm_id == farm_id)
@@ -316,7 +337,14 @@ async def recommend_for_farm(
     ).first()
 
     overrides = body.model_dump(
-        exclude={"language", "top_k"}, exclude_none=True
+        exclude={
+            "language",
+            "top_k",
+            "use_live_weather",
+            "latitude",
+            "longitude",
+        },
+        exclude_none=True,
     )
 
     if latest is None and not overrides:
@@ -340,7 +368,7 @@ async def recommend_for_farm(
             "irrigation": latest.irrigation,
         }
 
-    farm_data = {**base, **overrides, "region": farm.region}
+    farm_data: dict[str, Any] = {**base, **overrides, "region": farm.region}
 
     required = [
         "nitrogen",
@@ -362,35 +390,77 @@ async def recommend_for_farm(
             detail=f"Missing fields: {', '.join(missing)}",
         )
 
+    weather_meta: Optional[dict[str, Any]] = None
+    weather_snapshot_id: Optional[UUID] = None
+    snapshot = None
+
+    if body.use_live_weather:
+        try:
+            snapshot, weather_row = await get_or_fetch_farm_weather(
+                session,
+                farm_id=farm.id,
+                user_id=user.id,
+                latitude=farm.latitude,
+                longitude=farm.longitude,
+                region=farm.region,
+            )
+            farm_data = apply_weather_to_farm_data(
+                farm_data, snapshot, overwrite_climate=True
+            )
+            weather_snapshot_id = weather_row.id
+            weather_meta = farm_data.get("_weather")
+        except Exception as e:
+            # Weather must not block recommendations — fall back to form/soil climate
+            weather_meta = {"error": str(e), "overwrite_climate": False}
+
+    # Strip private metadata key before ML validation
+    ml_input = {k: v for k, v in farm_data.items() if not k.startswith("_")}
+
     try:
-        ml_result = predict(farm_data, top_k=body.top_k)
+        ml_result = predict(ml_input, top_k=body.top_k)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+
+    drought_risk = ml_result.drought_risk
+    if snapshot is not None and weather_meta and "features" in weather_meta:
+        drought_risk = escalate_drought_risk(
+            drought_risk, weather_meta["features"]
+        )
 
     recommendations = [r.model_dump() for r in ml_result.recommendations]
     explanation = await explain_recommendation(
         top_crop=ml_result.top_crop,
         recommendations=recommendations,
         soil_fertility=ml_result.soil_fertility_score,
-        drought_risk=ml_result.drought_risk,
-        farm_context=farm_data,
+        drought_risk=drought_risk,
+        farm_context=ml_input,
         language=body.language,
     )
+
+    climate_warning = explanation["climate_warning"]
+    if snapshot is not None:
+        climate_warning = merge_climate_warning(climate_warning, snapshot)
+
+    # Persist snapshot including weather metadata for auditability
+    snapshot_to_store = dict(farm_data)
+    if weather_meta is not None:
+        snapshot_to_store["_weather"] = weather_meta
 
     row = Recommendation(
         farm_id=farm.id,
         user_id=user.id,
-        input_snapshot=farm_data,
+        input_snapshot=snapshot_to_store,
         top_crop=ml_result.top_crop,
         results=recommendations,
         soil_fertility_score=ml_result.soil_fertility_score,
-        drought_risk=ml_result.drought_risk,
+        drought_risk=drought_risk,
         explanation=explanation["explanation"],
         tips=explanation["tips"],
-        climate_warning=explanation["climate_warning"],
+        climate_warning=climate_warning,
         model_version=ml_result.model_version,
+        weather_snapshot_id=weather_snapshot_id,
     )
     session.add(row)
     session.commit()
@@ -409,4 +479,6 @@ async def recommend_for_farm(
         model_version=row.model_version,
         input_snapshot=row.input_snapshot,
         created_at=row.created_at,
+        weather_snapshot_id=row.weather_snapshot_id,
+        weather=weather_meta,
     )

@@ -8,7 +8,6 @@ import {
   Brain, Clock, ChevronRight, BarChart3,
   Sprout, AlertTriangle, CheckCircle, Lock,
 } from "lucide-react";
-import Navbar from "@/components/layout/Navbar";
 import { useAuthStore, HistoryEntry } from "@/hooks/useAuthStore";
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
@@ -259,9 +258,7 @@ export default function DashboardPage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F4EB" }}>
-      <Navbar />
-
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "6rem 1.5rem 4rem", position: "relative" }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "2rem 1.5rem 4rem", position: "relative" }}>
 
         {/* Header */}
         <motion.div

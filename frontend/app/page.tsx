@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, useScroll, useTransform, useInView, useMotionValue, useSpring } from "framer-motion";
 import {
   Leaf, CloudRain, TrendingUp, Shield, ArrowRight,
@@ -9,6 +10,7 @@ import {
   CheckCircle2, Zap, MapPin, Star,
 } from "lucide-react";
 import Navbar from "@/components/layout/Navbar";
+import { useAuthStore } from "@/hooks/useAuthStore";
 
 /* ── Animated counter hook ──────────────────────────────────────────── */
 function useCounter(target: number, duration = 2000) {
@@ -112,14 +114,30 @@ const REGIONS = [
 
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function LandingPage() {
+  const router = useRouter();
+  const { isAuthenticated, bootstrapped } = useAuthStore();
   const heroRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const heroY    = useTransform(scrollYProgress, [0, 1], ["0%", "25%"]);
   const heroFade = useTransform(scrollYProgress, [0, 0.7], [1, 0]);
 
+  useEffect(() => {
+    if (bootstrapped && isAuthenticated) {
+      router.replace("/hub");
+    }
+  }, [bootstrapped, isAuthenticated, router]);
+
   /* Word-by-word headline */
   const headline1 = ["Farm", "Smarter."];
   const headline2 = ["Grow", "Better."];
+
+  if (bootstrapped && isAuthenticated) {
+    return (
+      <main className="min-h-screen flex items-center justify-center" style={{ background: "#F7F4EB" }}>
+        <p style={{ color: "#A39686", fontSize: "0.9rem" }}>Opening your farm…</p>
+      </main>
+    );
+  }
 
   return (
     <main

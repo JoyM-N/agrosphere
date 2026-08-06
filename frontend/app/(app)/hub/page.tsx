@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Leaf, Sprout, BarChart3, ArrowRight,
-  TrendingUp, Brain, Clock, Plus, ChevronRight, Sun,
+  TrendingUp, Brain, Clock, Plus, ChevronRight, Sun, CloudRain, MapPin,
 } from "lucide-react";
 import { useAuthStore } from "@/hooks/useAuthStore";
-import Navbar from "@/components/layout/Navbar";
+import { getFarm, getFarmWeather, type WeatherAlert } from "@/lib/api";
+import { hasConfirmedCoords } from "@/lib/location";
 
 /* ── Animation variants ──────────────────────────────────────────────── */
 const fadeUp = {
@@ -29,8 +30,11 @@ const stagger = {
 /* ── Page ───────────────────────────────────────────────────────────── */
 export default function HubPage() {
   const router = useRouter();
-  const { isAuthenticated, user, history, loadHistory } = useAuthStore();
+  const { isAuthenticated, user, history, loadHistory, activeFarmId } = useAuthStore();
   const [mounted, setMounted] = useState(false);
+  const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlert[]>([]);
+  const [weatherSummary, setWeatherSummary] = useState<string | null>(null);
+  const [locationOk, setLocationOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -48,6 +52,35 @@ export default function HubPage() {
     }
   }, [mounted, isAuthenticated, loadHistory]);
 
+  useEffect(() => {
+    if (!mounted || !isAuthenticated || !activeFarmId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const farm = await getFarm(activeFarmId);
+        if (cancelled) return;
+        setLocationOk(hasConfirmedCoords(farm.latitude, farm.longitude));
+      } catch {
+        /* optional */
+      }
+      try {
+        const wx = await getFarmWeather(activeFarmId);
+        if (cancelled) return;
+        setWeatherAlerts(wx.alerts ?? []);
+        const rain3 = wx.features?.rain_next_3d_mm;
+        setWeatherSummary(
+          `${wx.current.temperature_c}°C · ${wx.current.humidity_pct}% humidity` +
+            (rain3 != null ? ` · ${rain3} mm rain (3d)` : "")
+        );
+      } catch {
+        /* weather is optional on hub */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted, isAuthenticated, activeFarmId]);
+
   if (!mounted || !isAuthenticated) return null;
 
   const analysisCount = history.length;
@@ -62,9 +95,7 @@ export default function HubPage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F4EB" }}>
-      <Navbar />
-
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "7rem 1.5rem 4rem" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "2rem 1.5rem 4rem" }}>
 
         {/* Greeting header */}
         <motion.div
@@ -109,6 +140,63 @@ export default function HubPage() {
             }
           </motion.p>
         </motion.div>
+
+        {(weatherSummary || weatherAlerts.length > 0 || locationOk === false) && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              background: "white",
+              border: "1px solid #E3DAC9",
+              borderRadius: 16,
+              padding: "1rem 1.25rem",
+              marginBottom: "1.75rem",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                          gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <CloudRain size={15} color="#4A9661" />
+                <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#4A9661",
+                               textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Farm weather
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {locationOk === false && (
+                  <Link href="/location">
+                    <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#C56F10",
+                                   display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      <MapPin size={12} /> Confirm location
+                    </span>
+                  </Link>
+                )}
+                <Link href="/weather">
+                  <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#A39686" }}>
+                    Details →
+                  </span>
+                </Link>
+              </div>
+            </div>
+            {locationOk === false && (
+              <p style={{ fontSize: "0.8rem", color: "#6B5B49", marginBottom: weatherSummary ? 8 : 0 }}>
+                Weather is using a region estimate until you confirm your farm pin.
+              </p>
+            )}
+            {weatherSummary && (
+              <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "#2C2010", marginBottom: weatherAlerts.length ? 8 : 0 }}>
+                {weatherSummary}
+              </p>
+            )}
+            {weatherAlerts.slice(0, 2).map((a, i) => (
+              <p key={`${a.kind}-${i}`} style={{ fontSize: "0.8rem", color: "#6B5B49", lineHeight: 1.45, marginTop: 4 }}>
+                <strong style={{ textTransform: "capitalize" }}>{a.kind.replace("_", " ")}</strong>
+                {" — "}
+                {a.message}
+              </p>
+            ))}
+          </motion.div>
+        )}
 
         {/* Action cards */}
         <motion.div

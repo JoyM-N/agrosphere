@@ -6,9 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   Leaf, ArrowLeft, Sprout, Droplets, AlertTriangle,
   CheckCircle, TrendingUp, ChevronRight, RotateCcw,
-  Sun, Brain,
+  Sun, Brain, CloudRain,
 } from "lucide-react";
-import Navbar from "@/components/layout/Navbar";
 import Link from "next/link";
 import { useAuthStore } from "@/hooks/useAuthStore";
 
@@ -31,6 +30,34 @@ interface RecommendationResponse {
   explanation: string;
   tips: string[];
   climate_warning: string;
+  weather?: {
+    source?: string;
+    fetched_at?: string;
+    latitude?: number;
+    longitude?: number;
+    features?: {
+      rain_next_3d_mm?: number;
+      rain_next_7d_mm?: number;
+      temp_max_3d_c?: number;
+      temp_avg_3d_c?: number;
+      current_humidity_pct?: number;
+      rainfall_annual_proxy_mm?: number;
+      alert_kinds?: string[];
+    };
+    alerts?: Array<{ level: string; kind: string; message: string }>;
+    climate_before?: {
+      temperature?: number;
+      humidity?: number;
+      rainfall?: number;
+    };
+    climate_after?: {
+      temperature?: number;
+      humidity?: number;
+      rainfall?: number;
+    };
+    overwrite_climate?: boolean;
+    error?: string;
+  } | null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────────── */
@@ -81,7 +108,25 @@ export default function ResultsPage() {
     setMounted(true);
     const stored = sessionStorage.getItem("agrosphere_result");
     if (!stored) { router.push("/recommend"); return; }
-    setResult(JSON.parse(stored));
+    const parsed = JSON.parse(stored) as RecommendationResponse;
+    // Fallback: merge autofill weather snapshot if recommend response lacked weather block
+    if (!parsed.weather) {
+      const wx = sessionStorage.getItem("agrosphere_weather");
+      if (wx) {
+        try {
+          const snap = JSON.parse(wx);
+          parsed.weather = {
+            source: snap.source,
+            fetched_at: snap.fetched_at,
+            latitude: snap.latitude,
+            longitude: snap.longitude,
+            features: snap.features,
+            alerts: snap.alerts,
+          };
+        } catch { /* ignore */ }
+      }
+    }
+    setResult(parsed);
     setLoaded(true);
   }, [router]);
 
@@ -107,9 +152,7 @@ export default function ResultsPage() {
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F4EB" }}>
-      <Navbar />
-
-      <div style={{ maxWidth: 800, margin: "0 auto", padding: "6rem 1.5rem 4rem" }}>
+      <div style={{ maxWidth: 800, margin: "0 auto", padding: "2rem 1.5rem 4rem" }}>
 
         {/* Back button */}
         <motion.div
@@ -349,6 +392,7 @@ export default function ResultsPage() {
                 border: "1px solid rgba(229,139,25,0.2)",
                 borderRadius: 12, padding: "1rem",
                 display: "flex", gap: 10, alignItems: "flex-start",
+                marginBottom: result.weather ? "1.25rem" : 0,
               }}>
                 <AlertTriangle size={16} color="#E58B19"
                                style={{ flexShrink: 0, marginTop: 2 }} />
@@ -356,6 +400,110 @@ export default function ResultsPage() {
                             lineHeight: 1.6 }}>
                   <strong>Climate Note:</strong> {result.climate_warning}
                 </p>
+              </div>
+            )}
+
+            {/* Live weather influence (Phase 2) */}
+            {result.weather && !result.weather.error && (
+              <div style={{
+                background: "rgba(74,150,97,0.06)",
+                border: "1px solid rgba(74,150,97,0.2)",
+                borderRadius: 14,
+                padding: "1.15rem 1.25rem",
+              }}>
+                <div style={{ display: "flex", alignItems: "center",
+                              gap: 8, marginBottom: 10 }}>
+                  <CloudRain size={15} color="#4A9661" />
+                  <span style={{ fontSize: "0.75rem", fontWeight: 700,
+                                 color: "#4A9661", textTransform: "uppercase",
+                                 letterSpacing: "0.08em" }}>
+                    Live weather used in this recommendation
+                  </span>
+                </div>
+
+                {result.weather.overwrite_climate && result.weather.climate_before && result.weather.climate_after && (
+                  <p style={{ fontSize: "0.82rem", color: "#4A3F35",
+                              lineHeight: 1.55, marginBottom: 12 }}>
+                    Climate inputs were updated from Open-Meteo before the model ran
+                    (temp {result.weather.climate_before.temperature}°C → {result.weather.climate_after.temperature}°C,
+                    {" "}humidity {result.weather.climate_before.humidity}% → {result.weather.climate_after.humidity}%,
+                    {" "}rainfall {result.weather.climate_before.rainfall} → {result.weather.climate_after.rainfall} mm/yr proxy).
+                  </p>
+                )}
+
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                  gap: 8,
+                  marginBottom: (result.weather.alerts?.length ?? 0) > 0 ? 12 : 0,
+                }}>
+                  {[
+                    {
+                      label: "Rain (3d)",
+                      value: result.weather.features?.rain_next_3d_mm != null
+                        ? `${result.weather.features.rain_next_3d_mm} mm`
+                        : "—",
+                    },
+                    {
+                      label: "Rain (7d)",
+                      value: result.weather.features?.rain_next_7d_mm != null
+                        ? `${result.weather.features.rain_next_7d_mm} mm`
+                        : "—",
+                    },
+                    {
+                      label: "Max temp",
+                      value: result.weather.features?.temp_max_3d_c != null
+                        ? `${result.weather.features.temp_max_3d_c}°C`
+                        : "—",
+                    },
+                    {
+                      label: "Humidity",
+                      value: result.weather.features?.current_humidity_pct != null
+                        ? `${result.weather.features.current_humidity_pct}%`
+                        : "—",
+                    },
+                  ].map((item) => (
+                    <div key={item.label} style={{
+                      background: "white",
+                      border: "1px solid #E3DAC9",
+                      borderRadius: 10,
+                      padding: "0.65rem 0.75rem",
+                    }}>
+                      <div style={{ fontSize: "0.65rem", fontWeight: 700,
+                                    color: "#A39686", textTransform: "uppercase",
+                                    letterSpacing: "0.06em", marginBottom: 4 }}>
+                        {item.label}
+                      </div>
+                      <div style={{ fontWeight: 800, fontSize: "0.95rem",
+                                    color: "#2C2010", fontFamily: "monospace" }}>
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {(result.weather.alerts?.length ?? 0) > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {result.weather.alerts!.slice(0, 3).map((a, i) => (
+                      <div key={`${a.kind}-${i}`} style={{
+                        fontSize: "0.8rem",
+                        color: "#4A3F35",
+                        lineHeight: 1.45,
+                        padding: "0.55rem 0.7rem",
+                        borderRadius: 8,
+                        background: a.level === "warning"
+                          ? "rgba(217,105,42,0.1)"
+                          : "rgba(229,139,25,0.08)",
+                      }}>
+                        <strong style={{ textTransform: "capitalize" }}>
+                          {a.kind.replace("_", " ")}
+                        </strong>
+                        {" — "}
+                        {a.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
