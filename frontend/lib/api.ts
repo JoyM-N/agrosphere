@@ -313,3 +313,55 @@ export async function ensureDefaultFarm(region: string): Promise<Farm> {
   }
   return createFarm({ name: "My Farm", region });
 }
+
+export interface WeatherAlert {
+  level: string;
+  kind: string;
+  message: string;
+}
+
+export interface WeatherSnapshot {
+  latitude: number;
+  longitude: number;
+  timezone: string;
+  source: string;
+  current: {
+    temperature_c: number;
+    humidity_pct: number;
+    precipitation_mm: number;
+    weather_code?: number | null;
+    observed_at: string;
+  };
+  daily: Array<{
+    date: string;
+    temp_max_c: number;
+    temp_min_c: number;
+    precipitation_mm: number;
+    precip_probability_pct?: number | null;
+  }>;
+  alerts: WeatherAlert[];
+  suggest_temperature: number;
+  suggest_humidity: number;
+  suggest_rainfall_mm_year_proxy: number;
+  fetched_at: string;
+}
+
+export async function getWeatherForecast(params: {
+  latitude?: number;
+  longitude?: number;
+  region?: string;
+}): Promise<WeatherSnapshot> {
+  const q = new URLSearchParams();
+  if (params.latitude != null) q.set("latitude", String(params.latitude));
+  if (params.longitude != null) q.set("longitude", String(params.longitude));
+  if (params.region) q.set("region", params.region);
+  const res = await apiFetch(`/api/weather/forecast?${q.toString()}`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}
+
+export async function getFarmWeather(farmId: string): Promise<WeatherSnapshot> {
+  const res = await apiFetch(`/api/weather/farms/${farmId}`, { auth: true });
+  if (!res.ok) throw new Error(await parseError(res));
+  return res.json();
+}

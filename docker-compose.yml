@@ -33,12 +33,18 @@ services:
       ML_SOURCE_PATH: /app/ml
       FRONTEND_URL: http://localhost:3000
     volumes:
-      # Live-reload friendly mounts for local docker dev
+      # Live code + local ML artifacts (pickles are gitignored but needed at runtime)
       - ./backend:/app/backend
       - ./ml:/app/ml
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 5
 
 volumes:
   agrosphere_pgdata:

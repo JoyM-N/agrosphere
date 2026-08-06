@@ -1,8 +1,9 @@
-"""Database engine and session helpers."""
+"""Database engine, sessions, and Alembic migration runner."""
 
 from collections.abc import Generator
+from pathlib import Path
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
 from core.config import config
 
@@ -13,15 +14,15 @@ engine = create_engine(
 )
 
 
-def init_db() -> None:
-    """Create tables if they do not exist (dev bootstrap).
+def run_migrations() -> None:
+    """Apply pending Alembic migrations up to head."""
+    from alembic import command
+    from alembic.config import Config
 
-    Alembic migrations should replace this for production schema changes.
-    """
-    # Import models so metadata is populated
-    from db import models  # noqa: F401
-
-    SQLModel.metadata.create_all(engine)
+    alembic_ini = Path(__file__).resolve().parents[1] / "alembic.ini"
+    alembic_cfg = Config(str(alembic_ini))
+    alembic_cfg.set_main_option("sqlalchemy.url", config.DATABASE_URL)
+    command.upgrade(alembic_cfg, "head")
 
 
 def get_session() -> Generator[Session, None, None]:

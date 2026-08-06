@@ -11,6 +11,7 @@ import {
 import Navbar from "@/components/layout/Navbar";
 import { toast } from "sonner";
 import { useAuthStore } from "@/hooks/useAuthStore";
+import { getWeatherForecast, type WeatherAlert } from "@/lib/api";
 
 /* ── Types ───────────────────────────────────────────────────────────── */
 interface FarmData {
@@ -185,6 +186,8 @@ export default function RecommendPage() {
   
   // Auth Integration
   const { isAuthenticated, runRecommendation } = useAuthStore();
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlert[]>([]);
 
   const [data, setData] = useState<FarmData>({
     nitrogen: "", phosphorus: "", potassium: "",
@@ -194,6 +197,65 @@ export default function RecommendPage() {
 
   const set = (key: keyof FarmData) => (value: string) =>
     setData((prev) => ({ ...prev, [key]: value }));
+
+  const fillFromLiveWeather = async () => {
+    setWeatherLoading(true);
+    const toastId = toast.loading("Fetching live weather…");
+    try {
+      let snapshot;
+      if (data.region) {
+        snapshot = await getWeatherForecast({ region: data.region });
+      } else {
+        const coords = await new Promise<{ lat: number; lon: number } | null>((resolve) => {
+          if (!navigator.geolocation) {
+            resolve(null);
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(
+            (pos) =>
+              resolve({
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+              }),
+            () => resolve(null),
+            { timeout: 8000 }
+          );
+        });
+
+        if (coords) {
+          snapshot = await getWeatherForecast({
+            latitude: coords.lat,
+            longitude: coords.lon,
+          });
+        } else {
+          snapshot = await getWeatherForecast({ region: "highland" });
+          toast.message("Using highland region defaults — pick your region on the next step for better accuracy.", {
+            id: toastId,
+          });
+        }
+      }
+
+      setData((prev) => ({
+        ...prev,
+        temperature: String(snapshot.suggest_temperature),
+        humidity: String(snapshot.suggest_humidity),
+        rainfall: String(Math.round(snapshot.suggest_rainfall_mm_year_proxy)),
+      }));
+      setWeatherAlerts(snapshot.alerts ?? []);
+      sessionStorage.setItem(
+        "agrosphere_weather",
+        JSON.stringify(snapshot)
+      );
+      toast.success("Climate fields filled from live weather", { id: toastId });
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not fetch weather",
+        { id: toastId }
+      );
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
 
   const goNext = () => {
     if (!validateStep()) return;
@@ -417,9 +479,77 @@ export default function RecommendPage() {
                                color: "#2C2010", marginBottom: 4 }}>
                     Climate Data
                   </h2>
-                  <p style={{ color: "#A39686", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
-                    Use average values for your area — check your county agricultural office or weather service.
+                  <p style={{ color: "#A39686", fontSize: "0.85rem", marginBottom: "1rem" }}>
+                    Enter averages for your area, or fill them from live weather.
                   </p>
+
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    disabled={weatherLoading}
+                    onClick={() => void fillFromLiveWeather()}
+                    style={{
+                      width: "100%",
+                      marginBottom: "1.25rem",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      padding: "0.85rem 1rem",
+                      borderRadius: 12,
+                      border: "1.5px solid rgba(229,139,25,0.35)",
+                      background: "rgba(229,139,25,0.08)",
+                      color: "#C56F10",
+                      fontWeight: 700,
+                      fontSize: "0.875rem",
+                      cursor: weatherLoading ? "wait" : "pointer",
+                      opacity: weatherLoading ? 0.7 : 1,
+                    }}
+                  >
+                    {weatherLoading ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <CloudRain size={16} />
+                    )}
+                    {weatherLoading ? "Fetching weather…" : "Fill from live weather"}
+                  </motion.button>
+
+                  {weatherAlerts.length > 0 && (
+                    <div style={{
+                      marginBottom: "1.25rem",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}>
+                      {weatherAlerts.map((a, i) => (
+                        <div
+                          key={`${a.kind}-${i}`}
+                          style={{
+                            padding: "0.75rem 1rem",
+                            borderRadius: 12,
+                            border: "1px solid #E3DAC9",
+                            background:
+                              a.level === "warning"
+                                ? "rgba(217,105,42,0.08)"
+                                : a.level === "watch"
+                                  ? "rgba(229,139,25,0.08)"
+                                  : "rgba(74,150,97,0.08)",
+                            color: "#2C2010",
+                            fontSize: "0.82rem",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <strong style={{ textTransform: "capitalize" }}>
+                            {a.kind.replace("_", " ")}
+                          </strong>
+                          {" — "}
+                          {a.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                     <NumberInput label="Rainfall"    value={data.rainfall}    onChange={set("rainfall")}
                       min={0} max={3000} unit="mm/yr" icon={CloudRain}

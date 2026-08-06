@@ -19,10 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from core.config import config
-from db.session import init_db
+from db.session import run_migrations
 from routers.auth import router as auth_router
 from routers.crops import router as crops_router
 from routers.farms import router as farms_router
+from routers.weather import router as weather_router
 from services.ml_bridge import load_model
 
 
@@ -30,19 +31,20 @@ from services.ml_bridge import load_model
 async def lifespan(app: FastAPI):
     """
     Runs once when the server starts.
-    Loads the ML model into memory so it's ready for requests.
+    Applies DB migrations, then loads the ML model into memory.
     """
     print(f"\n[ {config.APP_NAME} ] Starting up...")
     config.validate()
     try:
-        init_db()
-        print(f"[ {config.APP_NAME} ] Database ready")
+        run_migrations()
+        print(f"[ {config.APP_NAME} ] Database migrations up to date")
     except Exception as e:
-        print(f"[ {config.APP_NAME} ] Database init failed: {e}")
+        print(f"[ {config.APP_NAME} ] Database migration failed: {e}")
         print(
             "  → Start Postgres (docker compose up -d db) "
             "or check DATABASE_URL in .env"
         )
+        print("  → Or run: cd backend && alembic upgrade head")
     load_model()
     print(f"[ {config.APP_NAME} ] Ready\n")
     yield
@@ -73,6 +75,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(crops_router)
 app.include_router(farms_router)
+app.include_router(weather_router)
 
 
 @app.get("/health")
